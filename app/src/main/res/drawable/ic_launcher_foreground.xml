@@ -1,0 +1,53 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Shadow projection -->
+    <path
+        android:fillColor="#22000000"
+        android:pathData="M36,30h36v62h-36z" />
+
+    <!-- Wheels (Retro Black Blocky Wheels) -->
+    <!-- Front Left Wheel -->
+    <path android:fillColor="#18181A" android:pathData="M28,32h10v16h-10z" />
+    <!-- Front Right Wheel -->
+    <path android:fillColor="#18181A" android:pathData="M70,32h10v16h-10z" />
+    <!-- Rear Left Wheel -->
+    <path android:fillColor="#18181A" android:pathData="M28,68h10v16h-10z" />
+    <!-- Rear Right Wheel -->
+    <path android:fillColor="#18181A" android:pathData="M70,68h10v16h-10z" />
+
+    <!-- Main Chassis Body (Bright Neon Retro Crimson Red) -->
+    <path
+        android:fillColor="#FF0055"
+        android:pathData="M38,28h32v52h-32z" />
+    
+    <!-- Streamlined Nose Cone -->
+    <path
+        android:fillColor="#FF3366"
+        android:pathData="M38,28 L54,14 L70,28 Z" />
+
+    <!-- Rear Spoiler Wings -->
+    <path
+        android:fillColor="#FF0055"
+        android:pathData="M24,78h60v8h-60z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M24,76h8v2h-8z M76,76h8v2h-8z" />
+
+    <!-- Neon Decals (Cyan stripes down center) -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M51,18h6v38h-6z" />
+
+    <!-- Sleek Cockpit Windshield (reflective Light Blue) -->
+    <path
+        android:fillColor="#F0F0FA"
+        android:pathData="M44,42h20v10h-20z" />
+    <path
+        android:fillColor="#4EA8DE"
+        android:pathData="M44,44h16v8h-16z" />
+
+</vector>

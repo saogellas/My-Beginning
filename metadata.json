@@ -1,0 +1,6 @@
+{
+  "name": "Pixel Lane Racer",
+  "description": "A top-down 8-bit retro highway lane dodging racing game with real-time physics, collectible coin multiplier bonuses, and custom garage upgrades.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
