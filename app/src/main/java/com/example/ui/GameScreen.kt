@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
@@ -66,6 +67,26 @@ object GamingColors {
     val ActiveGreen = Color(0xFF81C784)
 }
 
+@Composable
+fun PixelSpriteImage(
+    sprite: List<String>,
+    pixelSize: Float = 3f,
+    modifier: Modifier = Modifier,
+    colorMap: Map<Char, Color> = PixelSprites.DefaultColorMap
+) {
+    val rows = sprite.size
+    val cols = sprite[0].length
+    Canvas(modifier = modifier.size((cols * pixelSize).dp, (rows * pixelSize).dp)) {
+        drawPixelSprite(
+            sprite = sprite,
+            centerX = size.width / 2f,
+            centerY = size.height / 2f,
+            pixelSize = pixelSize,
+            colorMap = colorMap
+        )
+    }
+}
+
 fun Modifier.bentoGridBackground(): Modifier = this.drawBehind {
     val gridSize = 24.dp.toPx()
     val dotRadius = 1.2f * density
@@ -92,7 +113,8 @@ fun BentoUpgradeCardLight(
     cost: Int,
     canAfford: Boolean,
     onUpgrade: () -> Unit,
-    testTagPrefix: String
+    testTagPrefix: String,
+    lang: String = "en"
 ) {
     Box(
         modifier = Modifier
@@ -108,8 +130,13 @@ fun BentoUpgradeCardLight(
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
+                val resolvedTitle = when (name) {
+                    "Engine Tuning" -> Localization.loc("engine_tuning", lang).uppercase()
+                    "Nitrogen Booster" -> Localization.loc("nitrogen_booster", lang).uppercase()
+                    else -> name.uppercase()
+                }
                 Text(
-                    text = "ENGINE TUNING",
+                    text = resolvedTitle,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     color = GamingColors.BentoTextDark.copy(alpha = 0.6f),
@@ -144,7 +171,7 @@ fun BentoUpgradeCardLight(
             // Upgrade button
             if (currentLvl >= 5) {
                 Text(
-                    text = "MAX LEVEL",
+                    text = Localization.loc("upgrade_full", lang).uppercase(),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -197,7 +224,8 @@ fun BentoUpgradeCardDark(
     cost: Int,
     canAfford: Boolean,
     onUpgrade: () -> Unit,
-    testTagPrefix: String
+    testTagPrefix: String,
+    lang: String = "en"
 ) {
     Box(
         modifier = Modifier
@@ -214,7 +242,7 @@ fun BentoUpgradeCardDark(
         ) {
             Column {
                 Text(
-                    text = "CHASSIS ARMOR",
+                    text = Localization.loc("chassis_armor", lang).uppercase(),
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     color = GamingColors.BentoTextLight,
@@ -245,7 +273,7 @@ fun BentoUpgradeCardDark(
             // Button
             if (currentLvl >= 5) {
                 Text(
-                    text = "SHIELDS MAXED",
+                    text = Localization.loc("upgrade_full", lang).uppercase(),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -297,7 +325,8 @@ fun BentoUpgradeCardMedium(
     cost: Int,
     canAfford: Boolean,
     onUpgrade: () -> Unit,
-    testTagPrefix: String
+    testTagPrefix: String,
+    lang: String = "en"
 ) {
     Box(
         modifier = Modifier
@@ -314,7 +343,7 @@ fun BentoUpgradeCardMedium(
         ) {
             Column {
                 Text(
-                    text = "TIRE TRACTION",
+                    text = Localization.loc("tire_traction", lang).uppercase(),
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     color = GamingColors.BentoTextLight,
@@ -345,7 +374,7 @@ fun BentoUpgradeCardMedium(
             // Button
             if (currentLvl >= 5) {
                 Text(
-                    text = "TIRES TUNED",
+                    text = Localization.loc("upgrade_full", lang).uppercase(),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -397,7 +426,8 @@ fun BentoUpgradeCardDarkAlt(
     cost: Int,
     canAfford: Boolean,
     onUpgrade: () -> Unit,
-    testTagPrefix: String
+    testTagPrefix: String,
+    lang: String = "en"
 ) {
     Box(
         modifier = Modifier
@@ -414,7 +444,7 @@ fun BentoUpgradeCardDarkAlt(
         ) {
             Column {
                 Text(
-                    text = "COIN HARVESTER",
+                    text = Localization.loc("coin_harvester", lang).uppercase(),
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
                     color = GamingColors.BentoTextLight,
@@ -445,7 +475,7 @@ fun BentoUpgradeCardDarkAlt(
             // Button
             if (currentLvl >= 5) {
                 Text(
-                    text = "MAGNET MAXED",
+                    text = Localization.loc("upgrade_full", lang).uppercase(),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -508,6 +538,7 @@ fun GameScreen(viewModel: GameViewModel) {
                 GameState.PLAYING -> GameplayLayout(viewModel, gameSave)
                 GameState.GAME_OVER -> GameOverLayout(viewModel, gameSave)
                 GameState.STAGE_CLEAR -> StageClearLayout(viewModel, gameSave)
+                GameState.SETTINGS -> SettingsLayout(viewModel, gameSave)
             }
         }
     }
@@ -547,11 +578,12 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
         label = "shield_spin"
     )
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(GamingColors.ScreenCap)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(GamingColors.ScreenCap)
+        ) {
         // Interactive Bento HUD top bar
         Row(
             modifier = Modifier
@@ -579,7 +611,7 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "SHIELD ",
+                        text = (Localization.loc("shield", gameSave.language) + " ").uppercase(),
                         fontFamily = FontFamily.Monospace,
                         color = GamingColors.BentoTextLight,
                         fontSize = 9.sp,
@@ -610,7 +642,7 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "SCORE",
+                        text = Localization.loc("score", gameSave.language).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 8.sp,
@@ -1090,6 +1122,223 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
             }
         }
     }
+
+    // --- TUTORIAL OVERLAY SCREEN ---
+        val tutorialRemaining = viewModel.tutorialTimerRemaining
+        if (tutorialRemaining > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.85f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { viewModel.skipTutorial() }
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 480.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(GamingColors.BentoDarkCard)
+                        .border(2.dp, GamingColors.NeonBlue, RoundedCornerShape(24.dp))
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = Localization.loc("tutorial_title", gameSave.language).uppercase(),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = GamingColors.NeonBlue
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(GamingColors.CurbRed)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "LIVE",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 8.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        val progressFraction = (tutorialRemaining / 5.0f).coerceIn(0f, 1f)
+                        val secondsLeft = kotlin.math.ceil(tutorialRemaining).toInt()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = Localization.loc("tutorial_start_in", gameSave.language).replace("%s", secondsLeft.toString()).uppercase(),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.White.copy(alpha = 0.1f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(progressFraction)
+                                    .background(GamingColors.CyberGold)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(16.dp))
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(GamingColors.CyberGold.copy(alpha = 0.15f))
+                                    .border(1.dp, GamingColors.CyberGold, RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                PixelSpriteImage(
+                                    sprite = PixelSprites.CoinStar,
+                                    pixelSize = 3.5f
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = Localization.loc("tutorial_to_take", gameSave.language).uppercase(),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = GamingColors.CyberGold
+                                )
+                                Text(
+                                    text = Localization.loc("tutorial_take_desc", gameSave.language),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    lineHeight = 14.sp,
+                                    color = Color.White.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(16.dp))
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(GamingColors.CurbRed.copy(alpha = 0.15f))
+                                    .border(1.dp, GamingColors.CurbRed, RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    PixelSpriteImage(
+                                        sprite = PixelSprites.ObstacleRoadblock,
+                                        pixelSize = 1.6f
+                                    )
+                                }
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = Localization.loc("tutorial_to_avoid", gameSave.language).uppercase(),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = GamingColors.CurbRed
+                                )
+                                Text(
+                                    text = Localization.loc("tutorial_avoid_desc", gameSave.language),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    lineHeight = 14.sp,
+                                    color = Color.White.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    val infiniteTapTransition = rememberInfiniteTransition(label = "pulse")
+                    val pulseAlpha by infiniteTapTransition.animateFloat(
+                        initialValue = 0.3f,
+                        targetValue = 1.0f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1000, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "pulse_alpha"
+                    )
+
+                    Button(
+                        onClick = { viewModel.skipTutorial() },
+                        colors = ButtonDefaults.buttonColors(containerColor = GamingColors.NeonBlue),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text(
+                            text = Localization.loc("tutorial_skip", gameSave.language).uppercase(),
+                            color = Color.Black,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 11.sp,
+                            modifier = Modifier.graphicsLayer { alpha = pulseAlpha }
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Procedural visual rendering mapping for greenery objects
@@ -1201,7 +1450,7 @@ fun MenuLayout(viewModel: GameViewModel, gameSave: GameSave) {
             ) {
                 Column {
                     Text(
-                        text = "COURSE 08 // RETRO LANE OVERDRIVE",
+                        text = Localization.loc("course_subtitle", gameSave.language),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -1209,7 +1458,7 @@ fun MenuLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         letterSpacing = 2.sp
                     )
                     Text(
-                        text = "NEON RACER",
+                        text = Localization.loc("app_title", gameSave.language),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Black,
@@ -1316,7 +1565,7 @@ fun MenuLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "TOP-DOWN ENGINE",
+                        text = Localization.loc("top_down_engine", gameSave.language),
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 9.sp,
@@ -1347,7 +1596,7 @@ fun MenuLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         verticalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "HIGH SCORE",
+                            text = Localization.loc("high_score", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             color = GamingColors.BentoTextDark.copy(alpha = 0.7f),
@@ -1395,7 +1644,7 @@ fun MenuLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         verticalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "CURRENT DRIVE",
+                            text = Localization.loc("current_drive", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             color = GamingColors.BentoTextLight,
@@ -1435,7 +1684,7 @@ fun MenuLayout(viewModel: GameViewModel, gameSave: GameSave) {
             ) {
                 Column {
                     Text(
-                        text = "SELECT LEVEL THEME // DYNAMIC",
+                        text = Localization.loc("select_theme", gameSave.language),
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         color = Color.White.copy(alpha = 0.5f),
@@ -1475,7 +1724,7 @@ fun MenuLayout(viewModel: GameViewModel, gameSave: GameSave) {
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "SPECIAL OBSTACLES ACTIVE",
+                                text = Localization.loc("special_obstacles_active", gameSave.language),
                                 fontFamily = FontFamily.Monospace,
                                 color = Color.White.copy(alpha = 0.4f),
                                 fontSize = 8.sp,
@@ -1533,7 +1782,7 @@ fun MenuLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "START RETRO RACE",
+                            text = Localization.loc("start_race", gameSave.language),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Black,
                             fontSize = 16.sp,
@@ -1571,11 +1820,49 @@ fun MenuLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "GARAGE & UPGRADES",
+                            text = Localization.loc("garage_upgrades", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = GamingColors.CyberGold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // SETTINGS Button (Dark Bento 3D style)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color.Black)
+            ) {
+                Button(
+                    onClick = { viewModel.navigateTo(GameState.SETTINGS) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 4.dp)
+                        .testTag("button_open_settings"),
+                    colors = ButtonDefaults.buttonColors(containerColor = GamingColors.BentoMediumCard),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = Localization.loc("settings_btn", gameSave.language).uppercase(),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color.White
                         )
                     }
                 }
@@ -1619,7 +1906,7 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                 }
 
                 Text(
-                    text = "NEON GARAGE",
+                    text = Localization.loc("garage_title", gameSave.language).uppercase(),
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Black,
                     color = Color.White,
@@ -1750,9 +2037,9 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                 .padding(horizontal = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            CarStatMeter(label = "Top Speed  ", valueMultiplier = currentCarDef.baseSpeedMultiplier)
-                            CarStatMeter(label = "Handling   ", valueMultiplier = currentCarDef.baseHandlingMultiplier)
-                            CarStatMeter(label = "Base Armor ", valueMultiplier = 1.0f + currentCarDef.extraShields * 0.5f)
+                            CarStatMeter(label = Localization.loc("top_speed", gameSave.language), valueMultiplier = currentCarDef.baseSpeedMultiplier)
+                            CarStatMeter(label = Localization.loc("handling", gameSave.language), valueMultiplier = currentCarDef.baseHandlingMultiplier)
+                            CarStatMeter(label = Localization.loc("base_armor", gameSave.language), valueMultiplier = 1.0f + currentCarDef.extraShields * 0.5f)
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -1778,7 +2065,7 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                     shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 21.dp, bottomEnd = 21.dp)
                                 ) {
                                     Text(
-                                        text = if (isSelected) "CURRENTLY EQUIPPED" else "EQUIP VEHICLE",
+                                        text = if (isSelected) Localization.loc("equipped", gameSave.language) else Localization.loc("equip", gameSave.language),
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Black,
                                         fontSize = 12.sp,
@@ -1809,7 +2096,7 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                     Icon(Icons.Default.Star, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "UNLOCK FOR ${currentCarDef.cost} COINS",
+                                        text = Localization.loc("unlock_for", gameSave.language).replace("%s", currentCarDef.cost.toString()),
                                         fontFamily = FontFamily.Monospace,
                                         fontWeight = FontWeight.Black,
                                         fontSize = 11.sp,
@@ -1829,7 +2116,7 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "PERFORMANCE INTERPOLATORS",
+                        text = Localization.loc("performance_interpolators", gameSave.language).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 10.sp,
@@ -1852,7 +2139,8 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                 cost = (gameSave.speedLevel + 1) * 40,
                                 canAfford = gameSave.coins >= (gameSave.speedLevel + 1) * 40,
                                 onUpgrade = { viewModel.purchaseUpgrade("SPEED") },
-                                testTagPrefix = "speed"
+                                testTagPrefix = "speed",
+                                lang = gameSave.language
                             )
                         }
 
@@ -1863,7 +2151,8 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                 cost = (gameSave.shieldLevel + 1) * 50,
                                 canAfford = gameSave.coins >= (gameSave.shieldLevel + 1) * 50,
                                 onUpgrade = { viewModel.purchaseUpgrade("SHIELD") },
-                                testTagPrefix = "shield"
+                                testTagPrefix = "shield",
+                                lang = gameSave.language
                             )
                         }
                     }
@@ -1879,7 +2168,8 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                 cost = (gameSave.handlingLevel + 1) * 35,
                                 canAfford = gameSave.coins >= (gameSave.handlingLevel + 1) * 35,
                                 onUpgrade = { viewModel.purchaseUpgrade("HANDLING") },
-                                testTagPrefix = "handling"
+                                testTagPrefix = "handling",
+                                lang = gameSave.language
                             )
                         }
 
@@ -1890,7 +2180,8 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                 cost = (gameSave.coinValueLevel + 1) * 45,
                                 canAfford = gameSave.coins >= (gameSave.coinValueLevel + 1) * 45,
                                 onUpgrade = { viewModel.purchaseUpgrade("COIN") },
-                                testTagPrefix = "coin"
+                                testTagPrefix = "coin",
+                                lang = gameSave.language
                             )
                         }
                     }
@@ -1906,7 +2197,8 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                 cost = (gameSave.accelerationLevel + 1) * 30,
                                 canAfford = gameSave.coins >= (gameSave.accelerationLevel + 1) * 30,
                                 onUpgrade = { viewModel.purchaseUpgrade("ACCELERATION") },
-                                testTagPrefix = "acceleration"
+                                testTagPrefix = "acceleration",
+                                lang = gameSave.language
                             )
                         }
 
@@ -1930,7 +2222,7 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "FAST ACCELERATION",
+                                    text = Localization.loc("fast_acceleration", gameSave.language),
                                     color = Color.White.copy(alpha = 0.3f),
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 9.sp,
@@ -2104,7 +2396,7 @@ fun GameOverLayout(viewModel: GameViewModel, gameSave: GameSave) {
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "SYSTEM ERROR // CRITICAL IMPACT",
+                        text = Localization.loc("system_error", gameSave.language).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -2113,7 +2405,7 @@ fun GameOverLayout(viewModel: GameViewModel, gameSave: GameSave) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "VEHICLE CRASHED!",
+                        text = Localization.loc("vehicle_crashed", gameSave.language).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Black,
@@ -2140,7 +2432,7 @@ fun GameOverLayout(viewModel: GameViewModel, gameSave: GameSave) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "RUN SCORE STATISTICS",
+                        text = Localization.loc("run_score_stats", gameSave.language).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         color = GamingColors.BentoTextLight.copy(alpha = 0.6f),
@@ -2157,7 +2449,7 @@ fun GameOverLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "YOUR RUN SCORE",
+                            text = Localization.loc("your_run_score", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Medium,
                             color = GamingColors.BentoTextLight,
@@ -2184,7 +2476,7 @@ fun GameOverLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                 .testTag("new_record_tag")
                         ) {
                             Text(
-                                text = "NEW PERSONAL RECORD!",
+                                text = Localization.loc("new_personal_record", gameSave.language).uppercase(),
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
@@ -2204,7 +2496,7 @@ fun GameOverLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "COINS SALVAGED",
+                            text = Localization.loc("coins_salvaged", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Medium,
                             color = GamingColors.BentoTextLight,
@@ -2252,7 +2544,7 @@ fun GameOverLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         Icon(Icons.Default.Refresh, contentDescription = "Restart", tint = Color.Black, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "RESTART DRIVE",
+                            text = Localization.loc("restart_drive", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Black,
                             fontSize = 16.sp,
@@ -2285,7 +2577,7 @@ fun GameOverLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         Icon(Icons.Default.Home, contentDescription = "Home", tint = Color.White, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "DRIVE TO MAIN MENU",
+                            text = Localization.loc("drive_to_main_menu", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
@@ -2320,7 +2612,7 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "LEVEL COMPLETE // EXCELLENT DRIVE",
+                        text = Localization.loc("stage_clear_sub", gameSave.language).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -2329,7 +2621,7 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "STAGE CLEARED!",
+                        text = Localization.loc("stage_cleared", gameSave.language).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Black,
@@ -2358,7 +2650,7 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
                 ) {
                     // Header Status
                     Text(
-                        text = "DRIVE ANALYSIS - LEVEL ${viewModel.activeTheme.displayName.uppercase()}",
+                        text = Localization.loc("drive_analysis", gameSave.language).replace("%s", viewModel.activeTheme.displayName.uppercase()).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 9.sp,
@@ -2374,7 +2666,7 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "TOTAL RUN SCORE",
+                            text = Localization.loc("total_run_score", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -2398,13 +2690,13 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Time Taken",
+                            text = Localization.loc("time_taken", gameSave.language),
                             fontFamily = FontFamily.Monospace,
                             color = GamingColors.BentoTextLight.copy(alpha = 0.8f),
                             fontSize = 12.sp
                         )
                         Text(
-                            text = String.format("%.1f SEC", viewModel.gameTimeSec),
+                            text = String.format("%.1f %s", viewModel.gameTimeSec, Localization.loc("seconds", gameSave.language).uppercase()),
                             fontFamily = FontFamily.Monospace,
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
@@ -2417,7 +2709,7 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Completion Bonus",
+                            text = Localization.loc("completion_bonus", gameSave.language),
                             fontFamily = FontFamily.Monospace,
                             color = GamingColors.BentoTextLight.copy(alpha = 0.8f),
                             fontSize = 12.sp
@@ -2437,13 +2729,14 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Near-Miss Passes",
+                            text = Localization.loc("near_miss_passes", gameSave.language),
                             fontFamily = FontFamily.Monospace,
                             color = GamingColors.BentoTextLight.copy(alpha = 0.8f),
                             fontSize = 12.sp
                         )
+                        val textSuffix = if (gameSave.language == "it") "volte" else "times"
                         Text(
-                            text = "${viewModel.nearMissesCount} times",
+                            text = "${viewModel.nearMissesCount} $textSuffix",
                             fontFamily = FontFamily.Monospace,
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
@@ -2458,7 +2751,7 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "COINS ACQUIRED",
+                            text = Localization.loc("coins_acquired", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Medium,
                             color = GamingColors.BentoTextLight,
@@ -2506,7 +2799,7 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         Icon(Icons.Default.PlayArrow, contentDescription = "Next Drive", tint = Color.Black, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "DRIVE AGAIN",
+                            text = Localization.loc("drive_again", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Black,
                             fontSize = 16.sp,
@@ -2539,11 +2832,236 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         Icon(Icons.Default.Home, contentDescription = "Home", tint = Color.White, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "DRIVE TO MAIN MENU",
+                            text = Localization.loc("drive_to_main_menu", gameSave.language).uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
                             color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsLayout(viewModel: GameViewModel, gameSave: GameSave) {
+    val lang = gameSave.language
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F0F0F))
+            .bentoGridBackground()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Upper Back Navigation
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(50.dp))
+                    .background(GamingColors.BentoDarkCard)
+                    .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(50.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { viewModel.navigateTo(GameState.MENU) },
+                    modifier = Modifier.testTag("settings_back_button").size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Go back",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Text(
+                    text = Localization.loc("settings_title", lang),
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.sp
+                )
+
+                Spacer(modifier = Modifier.width(36.dp)) // Equal space
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Large center Bento Board of Language selectors
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(GamingColors.BentoDarkCard)
+                    .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(32.dp))
+                    .padding(20.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Header Status
+                    Text(
+                        text = Localization.loc("select_language", lang).uppercase(),
+                        fontFamily = FontFamily.Monospace,
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+
+                    HorizontalDivider(color = GamingColors.BentoBorder, thickness = 1.dp)
+
+                    // English Select Indicator
+                    val isEnglishSelected = lang == "en"
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isEnglishSelected) GamingColors.BentoMediumCard else Color.Transparent)
+                            .border(
+                                width = 1.dp,
+                                color = if (isEnglishSelected) Color(0xFFD0BCFF) else GamingColors.BentoBorder,
+                                shape = RoundedCornerShape(20.dp)
+                            )
+                            .clickable { viewModel.selectLanguage("en") }
+                            .padding(16.dp)
+                            .testTag("language_option_en")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "ENGLISH / EN",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isEnglishSelected) Color(0xFFD0BCFF) else Color.White,
+                                fontSize = 14.sp
+                            )
+                            if (isEnglishSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = Color(0xFFD0BCFF),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Italian Select Indicator
+                    val isItalianSelected = lang == "it"
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isItalianSelected) GamingColors.BentoMediumCard else Color.Transparent)
+                            .border(
+                                width = 1.dp,
+                                color = if (isItalianSelected) Color(0xFFD0BCFF) else GamingColors.BentoBorder,
+                                shape = RoundedCornerShape(20.dp)
+                            )
+                            .clickable { viewModel.selectLanguage("it") }
+                            .padding(16.dp)
+                            .testTag("language_option_it")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "ITALIANO / IT",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isItalianSelected) Color(0xFFD0BCFF) else Color.White,
+                                fontSize = 14.sp
+                            )
+                            if (isItalianSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = Color(0xFFD0BCFF),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = GamingColors.BentoBorder, thickness = 1.dp)
+
+                    // Current status row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = Localization.loc("active_configuration", lang).uppercase(),
+                            fontFamily = FontFamily.Monospace,
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            text = if (isItalianSelected) "ITALIANO" else "ENGLISH",
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFD0BCFF),
+                            fontSize = 12.sp,
+                            modifier = Modifier.testTag("active_language_tag")
+                        )
+                    }
+                }
+            }
+        }
+
+        // Action Menu Buttons at Bottom
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+        ) {
+            // BACK TO MENU Button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color.Black)
+            ) {
+                Button(
+                    onClick = { viewModel.navigateTo(GameState.MENU) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 4.dp)
+                        .testTag("btn_settings_back_to_menu"),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD0BCFF)),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Home,
+                            contentDescription = "Home",
+                            tint = Color.Black,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = Localization.loc("back_to_menu", lang).uppercase(),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 14.sp,
+                            color = Color.Black
                         )
                     }
                 }

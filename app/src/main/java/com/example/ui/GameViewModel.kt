@@ -26,7 +26,8 @@ enum class GameState {
     SHOP,
     PLAYING,
     GAME_OVER,
-    STAGE_CLEAR
+    STAGE_CLEAR,
+    SETTINGS
 }
 
 enum class ObstacleType {
@@ -178,6 +179,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     var currentScreen by mutableStateOf(GameState.MENU)
         private set
 
+    // Tutorial overlay timer
+    var tutorialTimerRemaining by mutableStateOf(0f)
+
+    // Guided Tutorial State
+    var isGuidedTutorialActive by mutableStateOf(false)
+        private set
+    var guidedTutorialStep by mutableStateOf(0)
+        private set
+    var tutorialLeftClicked by mutableStateOf(false)
+        private set
+    var tutorialRightClicked by mutableStateOf(false)
+        private set
+    var tutorialCarLane by mutableStateOf(1) // 0, 1, 2
+        private set
+
+
     // Real-time gameplay variables
     var activeCarIndex by mutableStateOf(0)
     var currentScore by mutableStateOf(0)
@@ -232,11 +249,57 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var gameLoopJob: Job? = null
 
     fun navigateTo(state: GameState) {
+        val previousScreen = currentScreen
         currentScreen = state
         if (state == GameState.PLAYING) {
-            startNewGameRun()
+            val showTutorial = (previousScreen == GameState.MENU)
+            startNewGameRun(showTutorial = showTutorial)
         } else {
             stopGameLoop()
+        }
+    }
+
+    fun skipTutorial() {
+        tutorialTimerRemaining = 0f
+    }
+
+    fun startGuidedTutorial() {
+        isGuidedTutorialActive = true
+        guidedTutorialStep = 0
+        tutorialLeftClicked = false
+        tutorialRightClicked = false
+        tutorialCarLane = 1
+    }
+
+    fun closeGuidedTutorial() {
+        isGuidedTutorialActive = false
+    }
+
+    fun nextGuidedTutorialStep() {
+        if (guidedTutorialStep < 2) {
+            guidedTutorialStep++
+        } else {
+            closeGuidedTutorial()
+        }
+    }
+
+    fun prevGuidedTutorialStep() {
+        if (guidedTutorialStep > 0) {
+            guidedTutorialStep--
+        }
+    }
+
+    fun simulateTutorialSteerLeft() {
+        tutorialLeftClicked = true
+        if (tutorialCarLane > 0) {
+            tutorialCarLane--
+        }
+    }
+
+    fun simulateTutorialSteerRight() {
+        tutorialRightClicked = true
+        if (tutorialCarLane < 2) {
+            tutorialCarLane++
         }
     }
 
@@ -380,8 +443,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Game loop initiation
-    fun startNewGameRun() {
+    fun startNewGameRun(showTutorial: Boolean = false) {
         viewModelScope.launch {
+            tutorialTimerRemaining = if (showTutorial) 5.0f else 0f
             val snapshot = repository.getGameSave()
             val carDef = PixelSprites.UnlockedCarsList.getOrNull(snapshot.selectedCarId) ?: PixelSprites.UnlockedCarsList[0]
             
@@ -462,6 +526,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     // Heartbeat physics loop (updates every frame)
     private fun updateGameTick(dt: Float) {
         if (currentScreen != GameState.PLAYING) return
+        
+        if (tutorialTimerRemaining > 0f) {
+            tutorialTimerRemaining = (tutorialTimerRemaining - dt).coerceAtLeast(0f)
+            return
+        }
         
         gameTimeSec += dt
         val snapshot = gameSaveState.value
@@ -1169,5 +1238,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             (currentIndex - 1 + allThemes.size) % allThemes.size
         }
         activeTheme = allThemes[nextIndex]
+    }
+
+    fun selectLanguage(langCode: String) {
+        viewModelScope.launch {
+            val progress = repository.getGameSave()
+            if (progress.language != langCode) {
+                repository.saveProgress(progress.copy(language = langCode))
+            }
+        }
     }
 }

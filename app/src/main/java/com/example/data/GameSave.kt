@@ -15,7 +15,8 @@ data class GameSave(
     val shieldLevel: Int = 1,     // Additional health points or shields (durability)
     val handlingLevel: Int = 1,   // Snappier lane shifting physics
     val coinValueLevel: Int = 1,  // Bronze to Silver to Gold coin chance & value
-    val unlockedCarsBits: Int = 1 // Bitmask for unlocked cars. Car 0 is always unlocked (1 in binary)
+    val unlockedCarsBits: Int = 1, // Bitmask for unlocked cars. Car 0 is always unlocked (1 in binary)
+    val language: String = "en"   // "en" (English) or "it" (Italian)
 ) {
     // Helper to check if a car is unlocked
     fun isCarUnlocked(carId: Int): Boolean {
