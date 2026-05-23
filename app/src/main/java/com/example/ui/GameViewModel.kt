@@ -159,6 +159,17 @@ data class SkidMark(
     var opacity: Float = 0.8f
 )
 
+data class FuelCan(
+    val id: Long,
+    val lane: Int,
+    var x: Float,
+    var y: Float,
+    val refuelAmount: Float = 35f,
+    var collected: Boolean = false,
+    var magneticPullX: Float = 0f,
+    var magneticPullY: Float = 0f
+)
+
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: GameRepository
 
@@ -231,12 +242,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     var screenShakeAmount by mutableStateOf(0f)
     
     // Play lists for game loop drawing
-    val obstacles = mutableStateListOf<Obstacle>()
-    val coins = mutableStateListOf<Coin>()
-    val sidelineLeft = mutableStateListOf<SidelineObject>()
-    val sidelineRight = mutableStateListOf<SidelineObject>()
-    val particles = mutableStateListOf<RetroParticle>()
-    val skidMarks = mutableStateListOf<SkidMark>()
+    val obstacles = java.util.concurrent.CopyOnWriteArrayList<Obstacle>()
+    val coins = java.util.concurrent.CopyOnWriteArrayList<Coin>()
+    val sidelineLeft = java.util.concurrent.CopyOnWriteArrayList<SidelineObject>()
+    val sidelineRight = java.util.concurrent.CopyOnWriteArrayList<SidelineObject>()
+    val particles = java.util.concurrent.CopyOnWriteArrayList<RetroParticle>()
+    val skidMarks = java.util.concurrent.CopyOnWriteArrayList<SkidMark>()
+    val fuelCans = java.util.concurrent.CopyOnWriteArrayList<FuelCan>()
+    
+    // Fuel dynamics
+    var currentFuel by mutableStateOf(100f)
+    var maxFuel by mutableStateOf(100f)
+    var isOutOfFuelReason by mutableStateOf(false)
+    var distanceTraveledMeter by mutableStateOf(0f)
+    private var fuelSpawnTimer = 0f
+    
+    // Increment to trigger Compose layout recomposition
+    var gameFrameState by mutableStateOf(0)
+        private set
     
     // Background dash line scrolling Y offset
     var dashLinesYOffset by mutableStateOf(0f)
@@ -389,6 +412,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         repository.saveProgress(updatedProgress)
                     }
                 }
+                "FUEL" -> {
+                    val nextLvl = progress.fuelTankLevel + 1
+                    if (nextLvl > 5) return@launch
+                    cost = nextLvl * 40
+                    if (progress.coins >= cost) {
+                        updatedProgress = progress.copy(
+                            coins = progress.coins - cost,
+                            fuelTankLevel = nextLvl
+                        )
+                        repository.saveProgress(updatedProgress)
+                    }
+                }
             }
         }
     }
@@ -444,8 +479,52 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     // Game loop initiation
     fun startNewGameRun(showTutorial: Boolean = false) {
+        tutorialTimerRemaining = if (showTutorial) 5.0f else 0f
+        
+        // Setup coordinates
+        playerLane = 1
+        playerX = 500f
+        targetX = 500f
+        playerY = 820f
+        playerAngle = 0f
+        oilSlideSpin = 0f
+        spinOutTimer = 0f
+        isInvulnerable = false
+        invulnerabilityTimer = 0f
+        screenShakeAmount = 0f
+        
+        // Invalidate gameplay records
+        currentScore = 0
+        coinsCollectedThisRun = 0
+        gameTimeSec = 0f
+        spawnTimer = 0f
+        coinSpawnTimer = 0f
+        fuelSpawnTimer = 0f
+        levelProgressDistance = 0f
+        distanceTraveledMeter = 0f
+        isOutOfFuelReason = false
+        nearMissesCount = 0
+        timeTaken = 0f
+        nearMissedObstacles.clear()
+        
+        // Empty game lists
+        obstacles.clear()
+        coins.clear()
+        fuelCans.clear()
+        particles.clear()
+        skidMarks.clear()
+        
+        // Pre-populate sidelines
+        sidelineLeft.clear()
+        sidelineRight.clear()
+        for (i in 0..5) {
+            spawnSidelineAtY(left = true, y = i * 200f - 100f)
+            spawnSidelineAtY(left = false, y = i * 200f - 100f)
+        }
+        
+        stopGameLoop()
+
         viewModelScope.launch {
-            tutorialTimerRemaining = if (showTutorial) 5.0f else 0f
             val snapshot = repository.getGameSave()
             val carDef = PixelSprites.UnlockedCarsList.getOrNull(snapshot.selectedCarId) ?: PixelSprites.UnlockedCarsList[0]
             
@@ -453,50 +532,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             maxShields = 1 + carDef.extraShields + (snapshot.shieldLevel - 1)
             currentShields = maxShields
             
+            // Setup fuel capacity based on upgrade
+            val fuelLevel = snapshot.fuelTankLevel
+            maxFuel = 100f + (fuelLevel - 1) * 25f
+            currentFuel = maxFuel
+            
             // Speed settings impacted by engine level (upgraded engine allows higher base speed)
             val upgradeSpeedMultiplier = 1.0f + (snapshot.speedLevel - 1) * 0.12f
             baseScrollSpeed = 450f * carDef.baseSpeedMultiplier * upgradeSpeedMultiplier
             currentScrollSpeed = baseScrollSpeed
             speedMultiplier = 1.0f
             
-            // Setup coordinates
-            playerLane = 1
-            playerX = 500f
-            targetX = 500f
-            playerY = 820f
-            playerAngle = 0f
-            oilSlideSpin = 0f
-            spinOutTimer = 0f
-            isInvulnerable = false
-            invulnerabilityTimer = 0f
-            screenShakeAmount = 0f
-            
-            // Invalidate gameplay records
-            currentScore = 0
-            coinsCollectedThisRun = 0
-            gameTimeSec = 0f
-            spawnTimer = 0f
-            coinSpawnTimer = 0f
-            levelProgressDistance = 0f
-            nearMissesCount = 0
-            timeTaken = 0f
-            nearMissedObstacles.clear()
-            
-            // Empty game lists
-            obstacles.clear()
-            coins.clear()
-            particles.clear()
-            skidMarks.clear()
-            
-            // Pre-populate sidelines
-            sidelineLeft.clear()
-            sidelineRight.clear()
-            for (i in 0..5) {
-                spawnSidelineAtY(left = true, y = i * 200f - 100f)
-                spawnSidelineAtY(left = false, y = i * 200f - 100f)
-            }
-            
-            stopGameLoop()
             startGameLoop()
         }
     }
@@ -513,7 +559,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val dt = (elapsedMs.coerceAtMost(50).toFloat()) / 1000f
                 
                 updateGameTick(dt)
-                delay(16) // ~60fps target
+                
+                // Dynamic frame rate sleep targeting solid 60 fps without compounding delay
+                val processingTime = System.currentTimeMillis() - now
+                val sleepTime = (16L - processingTime).coerceIn(1L, 16L)
+                delay(sleepTime)
             }
         }
     }
@@ -537,18 +587,26 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         
         // Acceleration upgrade makes speed & multiplier ramp up much faster!
         val accelerationModifier = 1.0f + (snapshot.accelerationLevel - 1) * 0.15f
-        speedMultiplier = 1.0f + ((gameTimeSec * accelerationModifier) / 50f).coerceAtMost(1.2f)
+        speedMultiplier = 1.0f + ((gameTimeSec * accelerationModifier) / 50f).coerceAtMost(2.5f)
         currentScrollSpeed = baseScrollSpeed * speedMultiplier
         
-        // Track level stage clear progress
-        levelProgressDistance += currentScrollSpeed * dt
-        if (levelProgressDistance >= 10000f) {
-            triggerStageClear()
+        // Fuel depletion over distance, mitigated by Fuel Tank level upgrade
+        val distanceThisFrame = currentScrollSpeed * dt
+        val consumptionFactor = (1.0f - (snapshot.fuelTankLevel - 1) * 0.12f).coerceAtLeast(0.4f)
+        // Rate is set so base tank lasts ~22s without pickup
+        val fuelToDrain = distanceThisFrame * 0.01f * consumptionFactor
+        currentFuel = (currentFuel - fuelToDrain).coerceAtLeast(0f)
+        
+        if (currentFuel <= 0f) {
+            triggerOutOfFuel()
             return
         }
         
-        // Accumulate active score based on scrolling speed (starting at 0 for each level)
-        currentScore += (currentScrollSpeed * dt * 0.1f).toInt()
+        // Accumulate distance in meters
+        val distanceThisFrameMeters = currentScrollSpeed * dt * 0.1f
+        distanceTraveledMeter += distanceThisFrameMeters
+        levelProgressDistance += distanceThisFrameMeters
+        currentScore = distanceTraveledMeter.toInt()
         
         // Parallax roadside dash line scroll
         dashLinesYOffset = (dashLinesYOffset + currentScrollSpeed * dt) % 150f
@@ -568,7 +626,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         
         // Core Player horizontal physics interpolation (handling upgrade speed)
         val carDef = PixelSprites.UnlockedCarsList.getOrNull(snapshot.selectedCarId) ?: PixelSprites.UnlockedCarsList[0]
-        val handlingCoeff = (0.08f + snapshot.handlingLevel * 0.03f) * carDef.baseHandlingMultiplier
+        val handlingCoeff = (0.24f + snapshot.handlingLevel * 0.08f) * carDef.baseHandlingMultiplier
         
         val diffX = targetX - playerX
         val motionVelocityX = diffX * (handlingCoeff * 100f)
@@ -603,28 +661,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Particle dynamics
-        val particleIterator = particles.iterator()
-        while (particleIterator.hasNext()) {
-            val p = particleIterator.next()
+        val particleCopy = ArrayList(particles)
+        for (p in particleCopy) {
             p.x += p.vx * dt
             p.y += p.vy * dt
             p.y += currentScrollSpeed * dt // Scroll particles downward along road
             p.life += dt
             if (p.life >= p.maxLife) {
                 particles.remove(p)
-                break
             }
         }
         
         // Horizontal road skid lines scroll and fade
-        val skidIterator = skidMarks.iterator()
-        while (skidIterator.hasNext()) {
-            val s = skidIterator.next()
+        val skidCopy = ArrayList(skidMarks)
+        for (s in skidCopy) {
             s.y += currentScrollSpeed * dt
             s.opacity -= dt * 0.4f
             if (s.y > 1100f || s.opacity <= 0f) {
                 skidMarks.remove(s)
-                break
             }
         }
 
@@ -637,31 +691,41 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         // Elements motion and collision
         updateObstaclesAndCheckCollisions(dt)
         updateCoinsCollection(dt)
+        updateFuelCansCollection(dt)
+        
+        // Trigger recomposition frame tick
+        gameFrameState++
     }
 
     private fun updateScenery(dt: Float) {
+        var spawnLeftCount = 0
+        var spawnRightCount = 0
+
         // Left trees
-        val leftIt = sidelineLeft.iterator()
-        while (leftIt.hasNext()) {
-            val obj = leftIt.next()
+        val leftCopy = ArrayList(sidelineLeft)
+        for (obj in leftCopy) {
             obj.y += currentScrollSpeed * dt
             if (obj.y > 1100f) {
                 sidelineLeft.remove(obj)
-                spawnSidelineAtY(left = true, y = -150f)
-                break
+                spawnLeftCount++
             }
         }
         
         // Right trees
-        val rightIt = sidelineRight.iterator()
-        while (rightIt.hasNext()) {
-            val obj = rightIt.next()
+        val rightCopy = ArrayList(sidelineRight)
+        for (obj in rightCopy) {
             obj.y += currentScrollSpeed * dt
             if (obj.y > 1100f) {
                 sidelineRight.remove(obj)
-                spawnSidelineAtY(left = false, y = -150f)
-                break
+                spawnRightCount++
             }
+        }
+
+        repeat(spawnLeftCount) {
+            spawnSidelineAtY(left = true, y = -150f)
+        }
+        repeat(spawnRightCount) {
+            spawnSidelineAtY(left = false, y = -150f)
         }
     }
 
@@ -704,6 +768,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (coinSpawnTimer >= 0.95f) {
             coinSpawnTimer = 0f
             spawnNewCoin()
+        }
+
+        // Fuel Spawner tick rates
+        fuelSpawnTimer += dt
+        // Fuel spawns every 7.5 seconds
+        if (fuelSpawnTimer >= 7.5f) {
+            fuelSpawnTimer = 0f
+            spawnNewFuelCan()
         }
     }
 
@@ -871,9 +943,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updateObstaclesAndCheckCollisions(dt: Float) {
-        val obsIterator = obstacles.iterator()
-        while (obsIterator.hasNext()) {
-            val obs = obsIterator.next()
+        val obsCopy = ArrayList(obstacles)
+        for (obs in obsCopy) {
             
             // Move relative speed scrolling down the field
             // Scrolling speed Y is aggregate speed (game background speed - relative obstacle frontwards speed)
@@ -891,7 +962,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             // Wipe off screen
             if (obs.y > 1150f) {
                 obstacles.remove(obs)
-                break
+                continue
             }
             
             // Obstacle collision detection relative to player car hitbox
@@ -922,6 +993,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             oilSlideSpin = if (Random.nextBoolean()) 40f else -40f
                             obs.active = false
                             emitPuddleSplashParticles(obs.x, obs.y)
+                            // Deduct coins when sliding into oil
+                            val lostAmt = 3
+                            val actualLost = coinsCollectedThisRun.coerceAtMost(lostAmt)
+                            if (actualLost > 0) {
+                                coinsCollectedThisRun -= actualLost
+                                emitCoinLossParticles(obs.x, obs.y)
+                            }
                         }
                         ObstacleType.ICE_PATCH -> {
                             oilSlideSpin = if (Random.nextBoolean()) 80f else -80f
@@ -1069,9 +1147,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val magnetRadius = 110f + currProgress.coinValueLevel * 30f
         val pullForce = 350f + currProgress.coinValueLevel * 100f
         
-        val coinIterator = coins.iterator()
-        while (coinIterator.hasNext()) {
-            val c = coinIterator.next()
+        val coinCopy = ArrayList(coins)
+        for (c in coinCopy) {
             
             // Standard scroll down
             c.y += currentScrollSpeed * dt
@@ -1094,7 +1171,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             // Filter off-screen
             if (c.y > 1150f) {
                 coins.remove(c)
-                break
+                continue
             }
             
             // Coin hitbox check
@@ -1141,6 +1218,91 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun spawnNewFuelCan() {
+        val laneIndex = Random.nextInt(3)
+        val isBlocked = (obstacles.any { it.lane == laneIndex && it.y < 150f } || 
+                          coins.any { it.lane == laneIndex && it.y < 150f } ||
+                          fuelCans.any { it.lane == laneIndex && it.y < 150f })
+        if (isBlocked) return
+
+        val fuelX = when (laneIndex) {
+            0 -> 300f
+            1 -> 500f
+            else -> 700f
+        }
+
+        fuelCans.add(
+            FuelCan(
+                id = System.nanoTime(),
+                lane = laneIndex,
+                x = fuelX,
+                y = -100f,
+                refuelAmount = 35f
+            )
+        )
+    }
+
+    private fun updateFuelCansCollection(dt: Float) {
+        val currProgress = gameSaveState.value
+        val magnetRadius = 110f + currProgress.coinValueLevel * 30f
+        val pullForce = 350f + currProgress.coinValueLevel * 100f
+
+        val fuelCopy = ArrayList(fuelCans)
+        for (f in fuelCopy) {
+            f.y += currentScrollSpeed * dt
+
+            // Magnet pull physics towards vehicle if in radius
+            val distToCar = kotlin.math.sqrt(((f.x - playerX) * (f.x - playerX)) + ((f.y - playerY) * (f.y - playerY)))
+            if (distToCar < magnetRadius && !f.collected && spinOutTimer <= 0f) {
+                val dx = playerX - f.x
+                val dy = playerY - f.y
+                val ratioX = dx / distToCar
+                val ratioY = dy / distToCar
+
+                f.magneticPullX += ratioX * pullForce * dt
+                f.magneticPullY += ratioY * pullForce * dt
+                f.x += f.magneticPullX * dt
+                f.y += f.magneticPullY * dt
+            }
+
+            // Filter off-screen
+            if (f.y > 1150f) {
+                fuelCans.remove(f)
+                continue
+            }
+
+            // Fuel hitbox check
+            if (!f.collected && spinOutTimer <= 0f) {
+                val hitDistance = kotlin.math.sqrt(((f.x - playerX) * (f.x - playerX)) + ((f.y - playerY) * (f.y - playerY)))
+                if (hitDistance < 65f) {
+                    f.collected = true
+                    currentFuel = (currentFuel + f.refuelAmount).coerceAtMost(maxFuel)
+                    fuelCans.remove(f)
+
+                    // Pick-up particle splash
+                    emitFuelBursts(f.x, f.y)
+                }
+            }
+        }
+    }
+
+    private fun emitFuelBursts(x: Float, y: Float) {
+        for (i in 0..8) {
+            particles.add(
+                RetroParticle(
+                    x = x,
+                    y = y,
+                    vx = (Random.nextFloat() * 180f - 90f),
+                    vy = (Random.nextFloat() * 180f - 90f),
+                    color = androidx.compose.ui.graphics.Color(0xFF00FF66), // Vibrant retro fuel green
+                    size = 8f + Random.nextFloat() * 8f,
+                    life = 0f,
+                    maxLife = 0.42f
+                )
+            )
+        }
+    }
+
     private fun emitPuddleSplashParticles(x: Float, y: Float) {
         for (i in 0..10) {
             particles.add(
@@ -1153,6 +1315,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     size = 5f + Random.nextFloat() * 12f,
                     life = 0f,
                     maxLife = 0.4f
+                )
+            )
+        }
+    }
+
+    private fun emitCoinLossParticles(x: Float, y: Float) {
+        for (i in 0..6) {
+            particles.add(
+                RetroParticle(
+                    x = x,
+                    y = y,
+                    vx = (Random.nextFloat() * 260f - 130f),
+                    vy = -(Random.nextFloat() * 150f + 50f), // flying upwards/backwards
+                    color = PixelColors.Gold,
+                    size = 10f,
+                    life = 0f,
+                    maxLife = 0.5f
                 )
             )
         }
@@ -1178,6 +1357,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
         }
+    }
+
+    private fun triggerOutOfFuel() {
+        isOutOfFuelReason = true
+        triggerGameOver()
     }
 
     private fun triggerGameOver() {

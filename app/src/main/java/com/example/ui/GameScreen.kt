@@ -11,6 +11,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -540,6 +542,10 @@ fun GameScreen(viewModel: GameViewModel) {
                 GameState.STAGE_CLEAR -> StageClearLayout(viewModel, gameSave)
                 GameState.SETTINGS -> SettingsLayout(viewModel, gameSave)
             }
+
+            if (viewModel.isGuidedTutorialActive) {
+                GuidedTutorialOverlay(viewModel, gameSave)
+            }
         }
     }
 }
@@ -689,13 +695,13 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
             }
         }
 
-        // Theme and level progress indicator
+        // Fuel tank gauge indicator
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = viewModel.activeTheme.displayName.uppercase(),
@@ -703,9 +709,23 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
-                modifier = Modifier.width(115.dp)
+                modifier = Modifier.width(85.dp)
             )
-            val progressPercentScale = (viewModel.levelProgressDistance / 10000f).coerceIn(0f, 1f)
+            val fuelPercent = (viewModel.currentFuel / viewModel.maxFuel).coerceIn(0f, 1f)
+            val isLowFuel = fuelPercent < 0.25f
+            val flashAlpha = if (isLowFuel) {
+                val wave = (viewModel.gameTimeSec * 8f).rem(2f)
+                if (wave < 1f) 0.3f else 1f
+            } else {
+                1f
+            }
+            Text(
+                text = "FUEL",
+                color = if (isLowFuel) Color.Red.copy(alpha = flashAlpha) else Color(0xFF00FF66),
+                fontSize = 8.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = FontFamily.Monospace
+            )
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -716,17 +736,31 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(progressPercentScale)
-                        .background(viewModel.activeTheme.curbColor1)
+                        .fillMaxWidth(fuelPercent)
+                        .background(
+                            when {
+                                fuelPercent < 0.12f -> Color.Red.copy(alpha = flashAlpha)
+                                fuelPercent < 0.25f -> GamingColors.CyberGold.copy(alpha = flashAlpha)
+                                else -> Color(0xFF00FF66)
+                            }
+                        )
                 )
             }
             Text(
-                text = "${(progressPercentScale * 100).toInt()}%",
-                color = viewModel.activeTheme.curbColor1,
+                text = if (isLowFuel) {
+                    Localization.loc("fuel_running_low", gameSave.language).uppercase()
+                } else {
+                    "${(fuelPercent * 100).toInt()}%"
+                },
+                color = when {
+                    fuelPercent < 0.12f -> Color.Red
+                    fuelPercent < 0.25f -> GamingColors.CyberGold
+                    else -> Color(0xFF00FF66)
+                },
                 fontFamily = FontFamily.Monospace,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.width(36.dp),
+                modifier = Modifier.width(62.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.End
             )
         }
@@ -743,6 +777,9 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
                     .fillMaxSize()
                     .testTag("gameplay_canvas")
             ) {
+                // Register reactive frame dependency
+                val frame = viewModel.gameFrameState
+
                 // Read frame width and scale to match Virtual Coordinate System (1000x1000)
                 val canvasW = size.width
                 val canvasH = size.height
@@ -830,161 +867,172 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
 
                     // 5. Draw roadside grass details (Trees, rocks, etc.)
                     viewModel.sidelineLeft.forEach { item ->
-                        drawSceneryObject(item)
-                    }
-                    viewModel.sidelineRight.forEach { item ->
-                        drawSceneryObject(item)
-                    }
-
-                    // 6. Draw tyre skid marks left behind
-                    viewModel.skidMarks.forEach { xMark ->
-                        drawRect(
-                            color = Color.Black.copy(alpha = xMark.opacity.coerceIn(0f, 1f)),
-                            topLeft = Offset(xMark.x - 22f, xMark.y),
-                            size = Size(8f, 35f)
-                        )
-                        drawRect(
-                            color = Color.Black.copy(alpha = xMark.opacity.coerceIn(0f, 1f)),
-                            topLeft = Offset(xMark.x + 14f, xMark.y),
-                            size = Size(8f, 35f)
-                        )
-                    }
-
-                    // 7. Draw road details (oil puddle splatters, static roadblocks)
-                    viewModel.obstacles.forEach { obs ->
-                        if (!obs.active) return@forEach
-                        
-                        when (obs.type) {
-                            ObstacleType.BLUE_CAR -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleBlueCar,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 8.5f,
-                                    rotation = obs.angle
-                                )
-                            }
-                            ObstacleType.ORANGE_CAR -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleOrangeCar,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 8.5f,
-                                    rotation = obs.angle
-                                )
-                            }
-                            ObstacleType.TRUCK -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleTruck,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 8.5f,
-                                    rotation = obs.angle
-                                )
-                            }
-                            ObstacleType.ROADBLOCK -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleRoadblock,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 8f,
-                                    rotation = obs.angle
-                                )
-                            }
-                            ObstacleType.OIL_SPILL -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleOilSpill,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 10f,
-                                    rotation = obs.angle
-                                )
-                            }
-                            ObstacleType.TUMBLEWEED -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleTumbleweed,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 8f,
-                                    rotation = obs.angle
-                                )
-                            }
-                            ObstacleType.SAND_TRAP -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleSandTrap,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 8.5f,
-                                    rotation = obs.angle
-                                )
-                            }
-                            ObstacleType.ICE_PATCH -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleIcePatch,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 8.5f,
-                                    rotation = obs.angle
-                                )
-                            }
-                            ObstacleType.SNOW_DRIFT -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleSnowDrift,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 8f,
-                                    rotation = obs.angle
-                                )
-                            }
-                            ObstacleType.SPIKE_STRIP -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleSpikeStrip,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 8.5f,
-                                    rotation = obs.angle
-                                )
-                            }
-                            ObstacleType.TRAFFIC_CONE -> {
-                                drawPixelSprite(
-                                    sprite = PixelSprites.ObstacleTrafficCone,
-                                    centerX = obs.x,
-                                    centerY = obs.y,
-                                    pixelSize = 8f,
-                                    rotation = obs.angle
-                                )
+                            drawSceneryObject(item)
+                        }
+                        viewModel.sidelineRight.forEach { item ->
+                            drawSceneryObject(item)
+                        }
+    
+                        // 6. Draw tyre skid marks left behind
+                        viewModel.skidMarks.forEach { xMark ->
+                            drawRect(
+                                color = Color.Black.copy(alpha = xMark.opacity.coerceIn(0f, 1f)),
+                                topLeft = Offset(xMark.x - 22f, xMark.y),
+                                size = Size(8f, 35f)
+                            )
+                            drawRect(
+                                color = Color.Black.copy(alpha = xMark.opacity.coerceIn(0f, 1f)),
+                                topLeft = Offset(xMark.x + 14f, xMark.y),
+                                size = Size(8f, 35f)
+                            )
+                        }
+    
+                        // 7. Draw road details (oil puddle splatters, static roadblocks)
+                        viewModel.obstacles.forEach { obs ->
+                            if (!obs.active) return@forEach
+                            
+                            when (obs.type) {
+                                ObstacleType.BLUE_CAR -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleBlueCar,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 8.5f,
+                                        rotation = obs.angle
+                                    )
+                                }
+                                ObstacleType.ORANGE_CAR -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleOrangeCar,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 8.5f,
+                                        rotation = obs.angle
+                                    )
+                                }
+                                ObstacleType.TRUCK -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleTruck,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 8.5f,
+                                        rotation = obs.angle
+                                    )
+                                }
+                                ObstacleType.ROADBLOCK -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleRoadblock,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 8f,
+                                        rotation = obs.angle
+                                    )
+                                }
+                                ObstacleType.OIL_SPILL -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleOilSpill,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 10f,
+                                        rotation = obs.angle
+                                    )
+                                }
+                                ObstacleType.TUMBLEWEED -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleTumbleweed,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 8f,
+                                        rotation = obs.angle
+                                    )
+                                }
+                                ObstacleType.SAND_TRAP -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleSandTrap,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 8.5f,
+                                        rotation = obs.angle
+                                    )
+                                }
+                                ObstacleType.ICE_PATCH -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleIcePatch,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 8.5f,
+                                        rotation = obs.angle
+                                    )
+                                }
+                                ObstacleType.SNOW_DRIFT -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleSnowDrift,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 8f,
+                                        rotation = obs.angle
+                                    )
+                                }
+                                ObstacleType.SPIKE_STRIP -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleSpikeStrip,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 8.5f,
+                                        rotation = obs.angle
+                                    )
+                                }
+                                ObstacleType.TRAFFIC_CONE -> {
+                                    drawPixelSprite(
+                                        sprite = PixelSprites.ObstacleTrafficCone,
+                                        centerX = obs.x,
+                                        centerY = obs.y,
+                                        pixelSize = 8f,
+                                        rotation = obs.angle
+                                    )
+                                }
                             }
                         }
-                    }
-
-                    // 8. General Golden / Silver Coins
-                    viewModel.coins.forEach { coin ->
-                        if (coin.collected) return@forEach
-                        val coinColorMap = if (coin.isGold) {
-                            mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to PixelColors.Gold, 'w' to Color.White)
-                        } else if (coin.isSilver) {
-                            mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to PixelColors.LightGrey, 'w' to Color.White)
-                        } else {
-                            mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to Color(0xFFCD7F32), 'w' to Color.White) // Bronze
+    
+                        // 8. General Golden / Silver Coins
+                        viewModel.coins.forEach { coin ->
+                            if (coin.collected) return@forEach
+                            val coinColorMap = if (coin.isGold) {
+                                 mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to PixelColors.Gold, 'w' to Color.White)
+                            } else if (coin.isSilver) {
+                                 mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to PixelColors.LightGrey, 'w' to Color.White)
+                            } else {
+                                 mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to Color(0xFFCD7F32), 'w' to Color.White) // Bronze
+                            }
+                            
+                            drawPixelSprite(
+                                sprite = PixelSprites.CoinStar,
+                                centerX = coin.x,
+                                centerY = coin.y,
+                                pixelSize = 7.5f,
+                                colorMap = coinColorMap
+                            )
                         }
-                        
-                        drawPixelSprite(
-                            sprite = PixelSprites.CoinStar,
-                            centerX = coin.x,
-                            centerY = coin.y,
-                            pixelSize = 7.5f,
-                            colorMap = coinColorMap
-                        )
-                    }
-
-                    // 9. Retro Spark and Explosion system
-                    viewModel.particles.forEach { part ->
-                        drawRect(
-                            color = part.color.copy(alpha = (1f - (part.life / part.maxLife)).coerceIn(0f, 1f)),
-                            topLeft = Offset(part.x - part.size / 2f, part.y - part.size / 2f),
-                            size = Size(part.size, part.size)
-                        )
-                    }
+    
+                        // 8.5. Retro Fuel Canisters
+                        viewModel.fuelCans.forEach { fuelCan ->
+                            if (fuelCan.collected) return@forEach
+                            drawPixelSprite(
+                                sprite = PixelSprites.FuelCanister,
+                                centerX = fuelCan.x,
+                                centerY = fuelCan.y,
+                                pixelSize = 7.5f
+                            )
+                        }
+    
+                        // 9. Retro Spark and Explosion system
+                        viewModel.particles.forEach { part ->
+                            drawRect(
+                                color = part.color.copy(alpha = (1f - (part.life / part.maxLife)).coerceIn(0f, 1f)),
+                                topLeft = Offset(part.x - part.size / 2f, part.y - part.size / 2f),
+                                size = Size(part.size, part.size)
+                            )
+                        }
 
                     // 10. Draw Driven Pixel Car
                     val flashTint = viewModel.isInvulnerable && alphaFlash < 0.6f
@@ -1144,6 +1192,7 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
                         .clip(RoundedCornerShape(24.dp))
                         .background(GamingColors.BentoDarkCard)
                         .border(2.dp, GamingColors.NeonBlue, RoundedCornerShape(24.dp))
+                        .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1221,21 +1270,41 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
                             .padding(14.dp)
                     ) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(GamingColors.CyberGold.copy(alpha = 0.15f))
-                                    .border(1.dp, GamingColors.CyberGold, RoundedCornerShape(12.dp)),
-                                contentAlignment = Alignment.Center
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                PixelSpriteImage(
-                                    sprite = PixelSprites.CoinStar,
-                                    pixelSize = 3.5f
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(GamingColors.CyberGold.copy(alpha = 0.15f))
+                                        .border(1.dp, GamingColors.CyberGold, RoundedCornerShape(10.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    PixelSpriteImage(
+                                        sprite = PixelSprites.CoinStar,
+                                        pixelSize = 2.2f,
+                                        colorMap = mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to PixelColors.Gold, 'w' to Color.White)
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color.White.copy(alpha = 0.1f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(10.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    PixelSpriteImage(
+                                        sprite = PixelSprites.CoinStar,
+                                        pixelSize = 2.2f,
+                                        colorMap = mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to PixelColors.LightGrey, 'w' to Color.White)
+                                    )
+                                }
                             }
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(
@@ -1265,24 +1334,55 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
                             .padding(14.dp)
                     ) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(GamingColors.CurbRed.copy(alpha = 0.15f))
-                                    .border(1.dp, GamingColors.CurbRed, RoundedCornerShape(12.dp)),
-                                contentAlignment = Alignment.Center
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(GamingColors.CurbRed.copy(alpha = 0.12f))
+                                            .border(1.dp, GamingColors.CurbRed.copy(alpha = 0.6f), RoundedCornerShape(8.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        PixelSpriteImage(
+                                            sprite = PixelSprites.ObstacleRoadblock,
+                                            pixelSize = 1.2f
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(GamingColors.CurbRed.copy(alpha = 0.12f))
+                                            .border(1.dp, GamingColors.CurbRed.copy(alpha = 0.6f), RoundedCornerShape(8.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        PixelSpriteImage(
+                                            sprite = PixelSprites.ObstacleOilSpill,
+                                            pixelSize = 1.3f
+                                        )
+                                    }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(GamingColors.CurbRed.copy(alpha = 0.12f))
+                                        .border(1.dp, GamingColors.CurbRed.copy(alpha = 0.6f), RoundedCornerShape(8.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     PixelSpriteImage(
-                                        sprite = PixelSprites.ObstacleRoadblock,
-                                        pixelSize = 1.6f
+                                        sprite = PixelSprites.ObstacleBlueCar,
+                                        pixelSize = 1.3f
                                     )
                                 }
                             }
@@ -1301,6 +1401,129 @@ fun GameplayLayout(viewModel: GameViewModel, gameSave: GameSave) {
                                     lineHeight = 14.sp,
                                     color = Color.White.copy(alpha = 0.8f)
                                 )
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(16.dp))
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF00FF66).copy(alpha = 0.15f))
+                                    .border(1.dp, Color(0xFF00FF66), RoundedCornerShape(10.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                PixelSpriteImage(
+                                    sprite = PixelSprites.FuelCanister,
+                                    pixelSize = 2.2f
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = Localization.loc("tutorial_fuel_title", gameSave.language).uppercase(),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF00FF66)
+                                )
+                                Text(
+                                    text = Localization.loc("tutorial_fuel_desc", gameSave.language),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    lineHeight = 14.sp,
+                                    color = Color.White.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+
+                    // Pre-race Fuel Tank Upgrade option
+                    val fuelPrice = (gameSave.fuelTankLevel + 1) * 40
+                    val canAffordFuel = gameSave.coins >= fuelPrice
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .border(1.dp, GamingColors.CyberGold.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = Localization.loc("fuel_tank", gameSave.language).uppercase(),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 11.sp,
+                                    color = GamingColors.CyberGold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "LVL ${gameSave.fuelTankLevel}",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = Color.White
+                                    )
+                                    // Visual Level segments
+                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        for (i in 1..5) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(width = 8.dp, height = 4.dp)
+                                                    .background(
+                                                        if (i <= gameSave.fuelTankLevel) GamingColors.CyberGold else Color.White.copy(alpha = 0.15f)
+                                                    )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Tactical buy button
+                            Button(
+                                onClick = { if (canAffordFuel) viewModel.purchaseUpgrade("FUEL") },
+                                enabled = canAffordFuel,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = GamingColors.CyberGold,
+                                    disabledContainerColor = Color.White.copy(alpha = 0.1f)
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Icon(
+                                        imageVector = Icons.Default.Star,
+                                        contentDescription = null,
+                                        tint = if (canAffordFuel) Color.Black else Color.White.copy(alpha = 0.3f),
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Text(
+                                        text = if (canAffordFuel) "$fuelPrice" else "MAX / $fuelPrice",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = if (canAffordFuel) Color.Black else Color.White.copy(alpha = 0.3f)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1427,447 +1650,457 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSceneryObject(
 fun MenuLayout(viewModel: GameViewModel, gameSave: GameSave) {
     val activeCar = PixelSprites.UnlockedCarsList.getOrNull(gameSave.selectedCarId) ?: PixelSprites.UnlockedCarsList[0]
     
-    // We render a simple retro-futurist skyline grid on menu layout
+    val backgroundBrush = remember(viewModel.activeTheme) {
+        Brush.verticalGradient(
+            colors = listOf(
+                viewModel.activeTheme.grassColor.copy(alpha = 0.20f),
+                Color(0xFF0F0F12)
+            )
+        )
+    }
+
+    // Wrap the entire menu layout in a verticalScroll using rememberScrollState to prevent overflow/cutting on smaller screens
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(GamingColors.ScreenCap)
+            .background(backgroundBrush)
             .bentoGridBackground() // Blueprint background dots
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        // Bento-style Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = Localization.loc("course_subtitle", gameSave.language),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GamingColors.BentoTextLight.copy(alpha = 0.8f),
+                    letterSpacing = 2.sp
+                )
+                Text(
+                    text = Localization.loc("app_title", gameSave.language),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black,
+                    fontStyle = FontStyle.Italic,
+                    color = Color.White,
+                    letterSpacing = (-0.5).sp,
+                    modifier = Modifier.testTag("app_title")
+                )
+            }
             
-            // Bento-style Header
+            // Total coins purse in active-capsule shape
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .clip(RoundedCornerShape(50.dp))
+                    .background(GamingColors.BentoDarkCard)
+                    .border(1.dp, viewModel.activeTheme.curbColor1.copy(alpha = 0.5f), RoundedCornerShape(50.dp))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = Localization.loc("course_subtitle", gameSave.language),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = GamingColors.BentoTextLight.copy(alpha = 0.8f),
-                        letterSpacing = 2.sp
+                // Pulse Green Dot
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(GamingColors.ActiveGreen)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = "Coins",
+                    tint = GamingColors.CyberGold,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "${gameSave.coins}",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = Color.White,
+                    modifier = Modifier.testTag("total_coins_value")
+                )
+            }
+        }
+
+        // Bento Highway Viewport Block
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(170.dp) // Reduced height for better device responsiveness
+                .clip(RoundedCornerShape(24.dp))
+                .border(2.dp, viewModel.activeTheme.curbColor1.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                .background(GamingColors.BentoDarkCard)
+                .bentoGridBackground(), // Overlay grid inside view
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize().padding(1.dp)) {
+                // Background grass matching selected theme
+                drawRect(color = viewModel.activeTheme.grassColor)
+                
+                // Background highway demo render with generous lane width
+                val leftBoundary = size.width * 0.25f
+                val rightBoundary = size.width * 0.75f
+                val rdWidth = rightBoundary - leftBoundary
+                
+                // Draw road asphalt matching theme
+                drawRect(color = viewModel.activeTheme.roadColor, topLeft = Offset(leftBoundary, 0f), size = Size(rdWidth, size.height))
+                
+                // Draw curbs matching theme
+                drawRect(color = viewModel.activeTheme.curbColor1, topLeft = Offset(leftBoundary - 8f, 0f), size = Size(8f, size.height))
+                drawRect(color = viewModel.activeTheme.curbColor2, topLeft = Offset(rightBoundary, 0f), size = Size(8f, size.height))
+                
+                // Draw dotted lane marks matching theme
+                val laneStripeH = 24f
+                var stripeY = 0f
+                while (stripeY < size.height) {
+                    drawRect(
+                        color = viewModel.activeTheme.dashColor,
+                        topLeft = Offset(leftBoundary + rdWidth / 3f, stripeY),
+                        size = Size(3f, laneStripeH)
                     )
-                    Text(
-                        text = Localization.loc("app_title", gameSave.language),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Black,
-                        fontStyle = FontStyle.Italic,
-                        color = Color.White,
-                        letterSpacing = (-0.5).sp,
-                        modifier = Modifier.testTag("app_title")
+                    drawRect(
+                        color = viewModel.activeTheme.dashColor,
+                        topLeft = Offset(leftBoundary + 2f * rdWidth / 3f, stripeY),
+                        size = Size(3f, laneStripeH)
                     )
+                    stripeY += laneStripeH * 2.5f
                 }
                 
-                // Total coins purse in active-capsule shape
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50.dp))
-                        .background(GamingColors.BentoDarkCard)
-                        .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(50.dp))
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Pulse Green Dot
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(GamingColors.ActiveGreen)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(
-                        imageVector = Icons.Default.Star,
-                        contentDescription = "Coins",
-                        tint = GamingColors.CyberGold,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "${gameSave.coins}",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = Color.White,
-                        modifier = Modifier.testTag("total_coins_value")
-                    )
-                }
-            }
-
-            // Bento Highway Viewport Block
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp)
-                    .clip(RoundedCornerShape(32.dp))
-                    .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(32.dp))
-                    .background(GamingColors.BentoDarkCard)
-                    .bentoGridBackground(), // Overlay grid inside view
-                contentAlignment = Alignment.Center
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize().padding(1.dp)) {
-                    // Background highway demo render with generous lane width
-                    val leftBoundary = size.width * 0.25f
-                    val rightBoundary = size.width * 0.75f
-                    val rdWidth = rightBoundary - leftBoundary
-                    
-                    // Draw road asphalt
-                    drawRect(color = GamingColors.RoadGray, topLeft = Offset(leftBoundary, 0f), size = Size(rdWidth, size.height))
-                    
-                    // Draw curbs
-                    drawRect(color = GamingColors.CurbRed, topLeft = Offset(leftBoundary - 10f, 0f), size = Size(10f, size.height))
-                    drawRect(color = GamingColors.CurbRed, topLeft = Offset(rightBoundary, 0f), size = Size(10f, size.height))
-                    
-                    // Draw dotted lane marks
-                    val laneStripeH = 30f
-                    var stripeY = 0f
-                    while (stripeY < size.height) {
-                        drawRect(
-                            color = Color.White.copy(alpha = 0.25f),
-                            topLeft = Offset(leftBoundary + rdWidth / 3f, stripeY),
-                            size = Size(4f, laneStripeH)
-                        )
-                        drawRect(
-                            color = Color.White.copy(alpha = 0.25f),
-                            topLeft = Offset(leftBoundary + 2f * rdWidth / 3f, stripeY),
-                            size = Size(4f, laneStripeH)
-                        )
-                        stripeY += laneStripeH * 2.5f
-                    }
-                    
-                    // Render selected car
-                    drawPixelSprite(
-                        sprite = activeCar.spriteRaw,
-                        centerX = size.width / 2f,
-                        centerY = size.height / 2f,
-                        pixelSize = 5.5f
-                    )
-                }
-                
-                // "TOP-DOWN VIEW" tag in bottom right
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(14.dp)
-                        .clip(RoundedCornerShape(50.dp))
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(50.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = Localization.loc("top_down_engine", gameSave.language),
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 9.sp,
-                        color = Color.White.copy(alpha = 0.8f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Side-by-side Bento Row of Stats
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // High Score Bento Block (Light theme)
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(110.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(GamingColors.BentoLightCard)
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
-                        .padding(14.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = Localization.loc("high_score", gameSave.language).uppercase(),
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = GamingColors.BentoTextDark.copy(alpha = 0.7f),
-                            fontSize = 10.sp
-                        )
-                        Text(
-                            text = String.format("%06d", gameSave.highScore),
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Black,
-                            color = GamingColors.BentoTextDark,
-                            fontSize = 20.sp,
-                            modifier = Modifier.testTag("high_score_value")
-                        )
-                        // decorative bar
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(50.dp))
-                                .background(GamingColors.BentoTextDark.copy(alpha = 0.15f))
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .fillMaxWidth(0.85f)
-                                    .clip(RoundedCornerShape(50.dp))
-                                    .background(GamingColors.BentoTextDark)
-                            )
-                        }
-                    }
-                }
-
-                // Current Drive Bento Block (Dark theme)
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(110.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(GamingColors.BentoDarkCard)
-                        .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(24.dp))
-                        .padding(14.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = Localization.loc("current_drive", gameSave.language).uppercase(),
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = GamingColors.BentoTextLight,
-                            fontSize = 10.sp
-                        )
-                        Text(
-                            text = activeCar.name.uppercase(),
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Black,
-                            color = activeCar.colorAccent,
-                            fontSize = 14.sp,
-                            maxLines = 1
-                        )
-                        // level dots or indicator lines
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Box(modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(50.dp)).background(activeCar.colorAccent))
-                            Box(modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(50.dp)).background(activeCar.colorAccent))
-                            Box(modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(50.dp)).background(GamingColors.BentoBorder))
-                        }
-                    }
-                }
+                // Render selected car
+                drawPixelSprite(
+                    sprite = activeCar.spriteRaw,
+                    centerX = size.width / 2f,
+                    centerY = size.height / 2f,
+                    pixelSize = 4.8f
+                )
             }
             
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // THEME / STAGE SELECTOR CARD (tactile Bento layout)
+            // "TOP-DOWN VIEW" tag in bottom right
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(GamingColors.BentoDarkCard)
-                    .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(24.dp))
-                    .padding(14.dp)
+                    .align(Alignment.BottomEnd)
+                    .padding(12.dp)
+                    .clip(RoundedCornerShape(50.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(50.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
             ) {
-                Column {
+                Text(
+                    text = Localization.loc("top_down_engine", gameSave.language),
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp,
+                    color = Color.White.copy(alpha = 0.8f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Side-by-side Bento Row of Stats
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // High Score Bento Block (Light theme, tinted border)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(95.dp) // Adjusted height
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(GamingColors.BentoLightCard)
+                    .border(1.dp, viewModel.activeTheme.curbColor1.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
+                    .padding(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
                     Text(
-                        text = Localization.loc("select_theme", gameSave.language),
+                        text = Localization.loc("high_score", gameSave.language).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White.copy(alpha = 0.5f),
-                        fontSize = 9.sp
+                        color = GamingColors.BentoTextDark.copy(alpha = 0.7f),
+                        fontSize = 10.sp
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = String.format("%06d", gameSave.highScore),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        color = GamingColors.BentoTextDark,
+                        fontSize = 18.sp,
+                        modifier = Modifier.testTag("high_score_value")
+                    )
+                    // decorative bar
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(50.dp))
+                            .background(GamingColors.BentoTextDark.copy(alpha = 0.15f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(0.85f)
+                                .clip(RoundedCornerShape(50.dp))
+                                .background(GamingColors.BentoTextDark)
+                        )
+                    }
+                }
+            }
+
+            // Current Drive Bento Block (Dark theme, tinted border)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(95.dp) // Adjusted height
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(GamingColors.BentoDarkCard)
+                    .border(1.dp, viewModel.activeTheme.curbColor2.copy(alpha = 0.35f), RoundedCornerShape(24.dp))
+                    .padding(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = Localization.loc("current_drive", gameSave.language).uppercase(),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = GamingColors.BentoTextLight,
+                        fontSize = 10.sp
+                    )
+                    Text(
+                        text = activeCar.name.uppercase(),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        color = activeCar.colorAccent,
+                        fontSize = 13.sp,
+                        maxLines = 1
+                    )
+                    // level dots or indicator lines
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // Left cycle button
-                        IconButton(
-                            onClick = { viewModel.cycleTheme(forward = false) },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(50.dp))
-                                .background(Color.Black.copy(alpha = 0.4f))
-                                .testTag("theme_btn_left")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowLeft,
-                                contentDescription = "Prev Theme",
-                                tint = Color.White
-                            )
-                        }
-
-                        // Central Theme Specs
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = viewModel.activeTheme.displayName.uppercase(),
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Black,
-                                color = viewModel.activeTheme.curbColor1,
-                                fontSize = 15.sp,
-                                modifier = Modifier.testTag("active_theme_text")
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = Localization.loc("special_obstacles_active", gameSave.language),
-                                fontFamily = FontFamily.Monospace,
-                                color = Color.White.copy(alpha = 0.4f),
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // Right cycle button
-                        IconButton(
-                            onClick = { viewModel.cycleTheme(forward = true) },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(50.dp))
-                                .background(Color.Black.copy(alpha = 0.4f))
-                                .testTag("theme_btn_right")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowRight,
-                                contentDescription = "Next Theme",
-                                tint = Color.White
-                            )
-                        }
+                        Box(modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(50.dp)).background(activeCar.colorAccent))
+                        Box(modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(50.dp)).background(activeCar.colorAccent))
+                        Box(modifier = Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(50.dp)).background(GamingColors.BentoBorder))
                     }
                 }
             }
         }
+        
+        Spacer(modifier = Modifier.height(12.dp))
 
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+        // THEME / STAGE SELECTOR CARD (tactile Bento layout, strongly themed border)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(GamingColors.BentoDarkCard)
+                .border(2.dp, viewModel.activeTheme.curbColor1.copy(alpha = 0.7f), RoundedCornerShape(24.dp))
+                .padding(12.dp)
         ) {
-            // START RETRO RACE Button (Bento 3D style)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp)
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Color.Black) // bottom shadow
-            ) {
-                Button(
-                    onClick = { viewModel.navigateTo(GameState.PLAYING) },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 4.dp) // creates thick tactile bottom
-                        .testTag("button_start_game"),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD0BCFF)),
-                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 24.dp, bottomEnd = 24.dp),
-                    contentPadding = PaddingValues(0.dp)
+            Column {
+                Text(
+                    text = Localization.loc("select_theme", gameSave.language),
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 9.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Left cycle button
+                    IconButton(
+                        onClick = { viewModel.cycleTheme(forward = false) },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(50.dp))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .testTag("theme_btn_left")
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Race",
-                            tint = GamingColors.BentoTextDark,
-                            modifier = Modifier.size(24.dp)
+                            imageVector = Icons.Default.KeyboardArrowLeft,
+                            contentDescription = "Prev Theme",
+                            tint = Color.White
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+
+                    // Central Theme Specs
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = Localization.loc("start_race", gameSave.language),
+                            text = viewModel.activeTheme.displayName.uppercase(),
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Black,
-                            fontSize = 16.sp,
-                            color = GamingColors.BentoTextDark
+                            color = viewModel.activeTheme.curbColor1,
+                            fontSize = 15.sp,
+                            modifier = Modifier.testTag("active_theme_text")
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = Localization.loc("special_obstacles_active", gameSave.language),
+                            fontFamily = FontFamily.Monospace,
+                            color = Color.White.copy(alpha = 0.4f),
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
-                }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // GARAGE AND UPGRADES Button (Dark Bento 3D style)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp)
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Color.Black)
-            ) {
-                Button(
-                    onClick = { viewModel.navigateTo(GameState.SHOP) },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 4.dp)
-                        .testTag("button_open_garage"),
-                    colors = ButtonDefaults.buttonColors(containerColor = GamingColors.BentoMediumCard),
-                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Right cycle button
+                    IconButton(
+                        onClick = { viewModel.cycleTheme(forward = true) },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(50.dp))
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .testTag("theme_btn_right")
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Build,
-                            contentDescription = "Upgrades",
-                            tint = GamingColors.CyberGold,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = Localization.loc("garage_upgrades", gameSave.language).uppercase(),
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = GamingColors.CyberGold
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // SETTINGS Button (Dark Bento 3D style)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp)
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Color.Black)
-            ) {
-                Button(
-                    onClick = { viewModel.navigateTo(GameState.SETTINGS) },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 4.dp)
-                        .testTag("button_open_settings"),
-                    colors = ButtonDefaults.buttonColors(containerColor = GamingColors.BentoMediumCard),
-                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = Localization.loc("settings_btn", gameSave.language).uppercase(),
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = Color.White
+                            imageVector = Icons.Default.KeyboardArrowRight,
+                            contentDescription = "Next Theme",
+                            tint = Color.White
                         )
                     }
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // START RETRO RACE Button (Theme reactive, Bento 3D style)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(60.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(Color.Black) // bottom shadow
+        ) {
+            Button(
+                onClick = { viewModel.navigateTo(GameState.PLAYING) },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 4.dp) // creates thick tactile bottom
+                    .testTag("button_start_game"),
+                colors = ButtonDefaults.buttonColors(containerColor = viewModel.activeTheme.curbColor1),
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 24.dp, bottomEnd = 24.dp),
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Race",
+                        tint = Color.Black,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = Localization.loc("start_race", gameSave.language).uppercase(),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 15.sp,
+                        color = Color.Black
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // GARAGE AND UPGRADES Button (Dark Bento 3D style, themed trace)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(Color.Black)
+        ) {
+            Button(
+                onClick = { viewModel.navigateTo(GameState.SHOP) },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 4.dp)
+                    .testTag("button_open_garage"),
+                colors = ButtonDefaults.buttonColors(containerColor = GamingColors.BentoMediumCard),
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Build,
+                        contentDescription = "Upgrades",
+                        tint = viewModel.activeTheme.curbColor1,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = Localization.loc("garage_upgrades", gameSave.language).uppercase(),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = viewModel.activeTheme.curbColor1
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // SETTINGS Button (Dark Bento 3D style)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(Color.Black)
+        ) {
+            Button(
+                onClick = { viewModel.navigateTo(GameState.SETTINGS) },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 4.dp)
+                    .testTag("button_open_settings"),
+                colors = ButtonDefaults.buttonColors(containerColor = GamingColors.BentoMediumCard),
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = Localization.loc("settings_btn", gameSave.language).uppercase(),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
@@ -2202,33 +2435,16 @@ fun UpgradeShopLayout(viewModel: GameViewModel, gameSave: GameSave) {
                             )
                         }
 
-                        // Decorative info box to complete the grid nicely
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(120.dp)
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(GamingColors.BentoDarkCard)
-                                .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(24.dp))
-                                .padding(12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.Info,
-                                    contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.15f),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = Localization.loc("fast_acceleration", gameSave.language),
-                                    color = Color.White.copy(alpha = 0.3f),
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                        Box(modifier = Modifier.weight(1f)) {
+                            BentoUpgradeCardDarkAlt(
+                                name = Localization.loc("fuel_tank", gameSave.language),
+                                currentLvl = gameSave.fuelTankLevel,
+                                cost = (gameSave.fuelTankLevel + 1) * 40,
+                                canAfford = gameSave.coins >= (gameSave.fuelTankLevel + 1) * 40,
+                                onUpgrade = { viewModel.purchaseUpgrade("FUEL") },
+                                testTagPrefix = "fuel_tank",
+                                lang = gameSave.language
+                            )
                         }
                     }
                 }
@@ -2376,10 +2592,13 @@ fun GameOverLayout(viewModel: GameViewModel, gameSave: GameSave) {
             Spacer(modifier = Modifier.height(20.dp))
             
             // Dynamic blinking crash alert frame
+            val primaryColor = if (viewModel.isOutOfFuelReason) GamingColors.CyberGold else GamingColors.Crimson
+            val targetPulseColor = if (viewModel.isOutOfFuelReason) GamingColors.CyberGold.copy(alpha = 0.2f) else Color.Red.copy(alpha = 0.2f)
+            
             val blinkAction = rememberInfiniteTransition("crash_pulse")
-            val isHotRed by blinkAction.animateColor(
-                initialValue = GamingColors.Crimson,
-                targetValue = Color.Red.copy(alpha = 0.2f),
+            val pulseCardColor by blinkAction.animateColor(
+                initialValue = primaryColor,
+                targetValue = targetPulseColor,
                 animationSpec = infiniteRepeatable(tween(250, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
                 label = "pulse"
             )
@@ -2390,26 +2609,26 @@ fun GameOverLayout(viewModel: GameViewModel, gameSave: GameSave) {
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(32.dp))
                     .background(GamingColors.BentoDarkCard)
-                    .border(2.dp, isHotRed, RoundedCornerShape(32.dp))
+                    .border(2.dp, pulseCardColor, RoundedCornerShape(32.dp))
                     .padding(vertical = 24.dp, horizontal = 16.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = Localization.loc("system_error", gameSave.language).uppercase(),
+                        text = if (viewModel.isOutOfFuelReason) "SYSTEM CRITICAL // PROPULSION CUT" else Localization.loc("system_error", gameSave.language).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = GamingColors.Crimson.copy(alpha = 0.8f),
+                        color = if (viewModel.isOutOfFuelReason) GamingColors.CyberGold.copy(alpha = 0.8f) else GamingColors.Crimson.copy(alpha = 0.8f),
                         letterSpacing = 2.sp
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = Localization.loc("vehicle_crashed", gameSave.language).uppercase(),
+                        text = if (viewModel.isOutOfFuelReason) Localization.loc("vehicle_out_of_fuel", gameSave.language).uppercase() else Localization.loc("vehicle_crashed", gameSave.language).uppercase(),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Black,
-                        color = GamingColors.Crimson,
+                        color = if (viewModel.isOutOfFuelReason) GamingColors.CyberGold else GamingColors.Crimson,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.testTag("crash_label")
                     )
@@ -2787,7 +3006,7 @@ fun StageClearLayout(viewModel: GameViewModel, gameSave: GameSave) {
                     .background(Color.Black)
             ) {
                 Button(
-                    onClick = { viewModel.startNewGameRun() },
+                    onClick = { viewModel.navigateTo(GameState.PLAYING) },
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(bottom = 4.dp)
@@ -3031,6 +3250,44 @@ fun SettingsLayout(viewModel: GameViewModel, gameSave: GameSave) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
         ) {
+            // START GUIDED TUTORIAL Button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color.Black)
+            ) {
+                Button(
+                    onClick = { viewModel.startGuidedTutorial() },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 4.dp)
+                        .testTag("btn_start_guided_tutorial"),
+                    colors = ButtonDefaults.buttonColors(containerColor = GamingColors.NeonBlue),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Guided Tutorial",
+                            tint = Color.Black,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = Localization.loc("gt_button_label", lang).uppercase(),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 14.sp,
+                            color = Color.Black
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // BACK TO MENU Button
             Box(
                 modifier = Modifier
@@ -3064,6 +3321,596 @@ fun SettingsLayout(viewModel: GameViewModel, gameSave: GameSave) {
                             color = Color.Black
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GuidedTutorialOverlay(viewModel: GameViewModel, gameSave: GameSave) {
+    val step = viewModel.guidedTutorialStep
+    val lang = gameSave.language
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.91f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { /* Consume clicks to prevent background clicks */ }
+            .padding(20.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 480.dp)
+                .fillMaxHeight(0.92f)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFF15141A))
+                .border(2.dp, GamingColors.NeonBlue, RoundedCornerShape(24.dp))
+                .padding(20.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // STEP HEADERS & DISMISS
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = Localization.loc("gt_title", lang).uppercase(),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 12.sp,
+                        color = GamingColors.NeonBlue
+                    )
+                    Text(
+                        text = Localization.loc("gt_step", lang).replace("%d", (step + 1).toString()).uppercase(),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        color = Color.White.copy(alpha = 0.5f)
+                    )
+                }
+                
+                // Cross dismiss button
+                IconButton(
+                    onClick = { viewModel.closeGuidedTutorial() },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close Tutorial",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // MAIN INTERACTIVE OR ASSET CONTENT
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                when (step) {
+                    0 -> {
+                        // STEP 1 CONTENT: STEERING AND CONTROL PRACTICE
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = Localization.loc("gt_step1_title", lang).uppercase(),
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = Localization.loc("gt_step1_desc", lang),
+                                fontFamily = FontFamily.Monospace,
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Interactive 3-lane Mockup Road
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(120.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0xFF1E1E1E))
+                                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                                    .padding(vertical = 12.dp)
+                            ) {
+                                // Draw Lane Dividers
+                                Row(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    for (lane in 0..2) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxHeight()
+                                                .width(70.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(
+                                                    if (viewModel.tutorialCarLane == lane) Color.Black.copy(alpha = 0.4f)
+                                                    else Color.Transparent
+                                                )
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (viewModel.tutorialCarLane == lane) GamingColors.NeonBlue.copy(alpha = 0.6f) else Color.Transparent,
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (viewModel.tutorialCarLane == lane) {
+                                                PixelSpriteImage(
+                                                    sprite = PixelSprites.UnlockedCarsList.getOrNull(gameSave.selectedCarId)?.spriteRaw ?: PixelSprites.PlayerClassicRed,
+                                                    pixelSize = 2.4f
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = "LANE ${lane + 1}",
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 8.sp,
+                                                    color = Color.White.copy(alpha = 0.15f),
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Interactive buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Left control
+                                Button(
+                                    onClick = { viewModel.simulateTutorialSteerLeft() },
+                                    modifier = Modifier.weight(1f).height(44.dp).testTag("btn_tut_steer_left"),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (viewModel.tutorialLeftClicked) GamingColors.ActiveGreen else GamingColors.BentoMediumCard
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.ArrowBack, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("STEER L", fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        if (viewModel.tutorialLeftClicked) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+
+                                // Right control
+                                Button(
+                                    onClick = { viewModel.simulateTutorialSteerRight() },
+                                    modifier = Modifier.weight(1f).height(44.dp).testTag("btn_tut_steer_right"),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (viewModel.tutorialRightClicked) GamingColors.ActiveGreen else GamingColors.BentoMediumCard
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("STEER R", fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                        if (viewModel.tutorialRightClicked) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Dynamic user help instruction
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(10.dp))
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                val practiceComplete = viewModel.tutorialLeftClicked && viewModel.tutorialRightClicked
+                                Text(
+                                    text = if (practiceComplete) "EXCELLENT! CONTROLS RESPONSE VERIFIED." else Localization.loc("gt_try_steering", lang),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (practiceComplete) GamingColors.ActiveGreen else GamingColors.CyberGold
+                                )
+                            }
+                        }
+                    }
+                    1 -> {
+                        // STEP 2 CONTENT: REWARDS (WHAT TO TAKE)
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = Localization.loc("gt_step2_title", lang).uppercase(),
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = Localization.loc("gt_step2_desc", lang),
+                                fontFamily = FontFamily.Monospace,
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                item {
+                                    // Gold Coin Showcase
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.Black.copy(alpha = 0.3f))
+                                            .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(12.dp))
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(GamingColors.CyberGold.copy(alpha = 0.15f))
+                                                .border(1.dp, GamingColors.CyberGold, RoundedCornerShape(10.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            PixelSpriteImage(
+                                                sprite = PixelSprites.CoinStar,
+                                                pixelSize = 2.4f,
+                                                colorMap = mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to PixelColors.Gold, 'w' to Color.White)
+                                            )
+                                        }
+                                        Column {
+                                            Text(
+                                                text = "GOLD COIN // HIGHEST BONUS",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp,
+                                                color = GamingColors.CyberGold
+                                            )
+                                            Text(
+                                                text = "Highly lucrative tokens that feed your score multiplier and boost performance.",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 8.5.sp,
+                                                color = Color.White.copy(alpha = 0.7f),
+                                                lineHeight = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+
+                                item {
+                                    // Silver Coin Showcase
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.Black.copy(alpha = 0.3f))
+                                            .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(12.dp))
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color.White.copy(alpha = 0.12f))
+                                                .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            PixelSpriteImage(
+                                                sprite = PixelSprites.CoinStar,
+                                                pixelSize = 2.4f,
+                                                colorMap = mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to PixelColors.LightGrey, 'w' to Color.White)
+                                            )
+                                        }
+                                        Column {
+                                            Text(
+                                                text = "SILVER COIN // STANDARD VAL",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp,
+                                                color = Color.White
+                                            )
+                                            Text(
+                                                text = "Essential for garage vehicle unlocks and tuning enhancements.",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 8.5.sp,
+                                                color = Color.White.copy(alpha = 0.7f),
+                                                lineHeight = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+
+                                item {
+                                    // Bronze Coin Showcase
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.Black.copy(alpha = 0.3f))
+                                            .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(12.dp))
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color(0xFFCD7F32).copy(alpha = 0.15f))
+                                                .border(1.dp, Color(0xFFCD7F32), RoundedCornerShape(10.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            PixelSpriteImage(
+                                                sprite = PixelSprites.CoinStar,
+                                                pixelSize = 2.4f,
+                                                colorMap = mapOf('.' to Color.Transparent, 'k' to PixelColors.Black, 's' to Color(0xFFCD7F32), 'w' to Color.White)
+                                            )
+                                        }
+                                        Column {
+                                            Text(
+                                                text = "BRONZE COIN // COMMON",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp,
+                                                color = Color(0xFFCD7F32)
+                                            )
+                                            Text(
+                                                text = "Most frequent coin. Perfect for quick score progression.",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 8.5.sp,
+                                                color = Color.White.copy(alpha = 0.7f),
+                                                lineHeight = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    2 -> {
+                        // STEP 3 CONTENT: THREAT AVOIDANCE (WHAT TO AVOID)
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = Localization.loc("gt_step3_title", lang).uppercase(),
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = Localization.loc("gt_step3_desc", lang),
+                                fontFamily = FontFamily.Monospace,
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                item {
+                                    // Roadblock Barrier
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.Black.copy(alpha = 0.3f))
+                                            .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(12.dp))
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(GamingColors.CurbRed.copy(alpha = 0.15f))
+                                                .border(1.dp, GamingColors.CurbRed, RoundedCornerShape(10.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            PixelSpriteImage(
+                                                sprite = PixelSprites.ObstacleRoadblock,
+                                                pixelSize = 1.6f
+                                            )
+                                        }
+                                        Column {
+                                            Text(
+                                                text = "CONSTRUCTION BARRIER",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp,
+                                                color = GamingColors.CurbRed
+                                            )
+                                            Text(
+                                                text = "Devastates active shields on impact. Completely blocks lane.",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 8.5.sp,
+                                                color = Color.White.copy(alpha = 0.7f),
+                                                lineHeight = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+
+                                item {
+                                    // Oil Spill
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.Black.copy(alpha = 0.3f))
+                                            .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(12.dp))
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(GamingColors.CurbRed.copy(alpha = 0.15f))
+                                                .border(1.dp, GamingColors.CurbRed, RoundedCornerShape(10.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            PixelSpriteImage(
+                                                sprite = PixelSprites.ObstacleOilSpill,
+                                                pixelSize = 1.8f
+                                            )
+                                        }
+                                        Column {
+                                            Text(
+                                                text = "OIL SPILL PUDDLE",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp,
+                                                color = GamingColors.CurbRed
+                                            )
+                                            Text(
+                                                text = "Makes road highly slippery. Steer carefully or you will lose control!",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 8.5.sp,
+                                                color = Color.White.copy(alpha = 0.7f),
+                                                lineHeight = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+
+                                item {
+                                    // Rival Car Showcase
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color.Black.copy(alpha = 0.3f))
+                                            .border(1.dp, GamingColors.BentoBorder, RoundedCornerShape(12.dp))
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(GamingColors.CurbRed.copy(alpha = 0.15f))
+                                                .border(1.dp, GamingColors.CurbRed, RoundedCornerShape(10.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            PixelSpriteImage(
+                                                sprite = PixelSprites.ObstacleBlueCar,
+                                                pixelSize = 1.6f
+                                            )
+                                        }
+                                        Column {
+                                            Text(
+                                                text = "COMMUTER TRAFFIC",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp,
+                                                color = GamingColors.CurbRed
+                                            )
+                                            Text(
+                                                text = "Rival and slow commuter vehicles traveling ahead. Colliding drains shield capacity.",
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 8.5.sp,
+                                                color = Color.White.copy(alpha = 0.7f),
+                                                lineHeight = 11.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // BOTTOM NAVIGATION ACTION BUTTONS
+            Row(
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // BACK button (only if not at step 0)
+                if (step > 0) {
+                    Button(
+                        onClick = { viewModel.prevGuidedTutorialStep() },
+                        modifier = Modifier.weight(1f).fillMaxHeight().testTag("btn_tut_back"),
+                        colors = ButtonDefaults.buttonColors(containerColor = GamingColors.BentoMediumCard),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text(
+                            text = Localization.loc("gt_back", lang).uppercase(),
+                            color = Color.White,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                // NEXT or FINISH button
+                val isLastStep = step == 2
+                Button(
+                    onClick = { viewModel.nextGuidedTutorialStep() },
+                    modifier = Modifier.weight(if (step > 0) 1.5f else 1f).fillMaxHeight().testTag("btn_tut_next"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isLastStep) GamingColors.ActiveGreen else GamingColors.NeonBlue
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(
+                        text = if (isLastStep) Localization.loc("gt_close", lang).uppercase() else Localization.loc("gt_next", lang).uppercase(),
+                        color = Color.Black,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 11.sp
+                    )
                 }
             }
         }

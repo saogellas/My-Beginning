@@ -307,6 +307,20 @@ object PixelSprites {
         "...kkkk..."
     )
 
+    // Fuel Canister Sprite
+    val FuelCanister = listOf(
+        "...kk...",
+        "..kkkk..",
+        ".krrrrb.",
+        "krrrrrrb",
+        "krrrwwrb",
+        "krrrrrrb",
+        "krrrrrrb",
+        "krrrrrrb",
+        ".krrrrb.",
+        "..kkkk.."
+    )
+
     val UnlockedCarsList = listOf(
         CarDef(0, "Red Bandit", 0, 1.0f, 1.0f, 0, PlayerClassicRed, PixelColors.Red),
         CarDef(1, "Neon Cyber", 120, 1.2f, 1.3f, 1, PlayerCyberGrid, PixelColors.Cyan),
@@ -328,6 +342,7 @@ fun DrawScope.drawPixelSprite(
     if (flashTransparent) return // Don't draw if flashing invisible
     
     val rows = sprite.size
+    if (rows <= 0) return
     val cols = sprite[0].length
     
     val width = cols * pixelSize
@@ -342,8 +357,9 @@ fun DrawScope.drawPixelSprite(
         }
     }) {
         for (r in 0 until rows) {
+            val rowString = sprite[r]
             for (c in 0 until cols) {
-                val char = sprite[r][c]
+                val char = if (c < rowString.length) rowString[c] else '.'
                 val color = colorMap[char] ?: Color.Transparent
                 if (color != Color.Transparent) {
                     drawRect(

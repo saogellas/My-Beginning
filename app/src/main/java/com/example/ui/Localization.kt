@@ -101,7 +101,12 @@ object Localization {
         "gt_step3_desc" to "Rival vehicles, roadblock barriers, and spilled oil will devastate your shields on impact. Steer clear & survive!",
         "gt_next" to "NEXT STEP",
         "gt_back" to "PREVIOUS",
-        "gt_try_steering" to "TEST CONTROLS TO UNLOCK NEXT:"
+        "gt_try_steering" to "TEST CONTROLS TO UNLOCK NEXT:",
+        "fuel_tank" to "Gas Tank Capacity",
+        "vehicle_out_of_fuel" to "OUT OF FUEL!",
+        "fuel_running_low" to "LOW FUEL",
+        "tutorial_fuel_title" to "REFUEL & SUSTAIN",
+        "tutorial_fuel_desc" to "Collect retro fuel canisters on the road to keep your propulsion tank filled and survive!"
     )
 
     private val italianMap = mapOf(
@@ -199,6 +204,11 @@ object Localization {
         "gt_step3_desc" to "Auto rivali, blocchi stradali stradali, e chiazze d'olio devasteranno i tuoi scudi all'impatto. Evitali a tutti i costi!",
         "gt_next" to "PROSSIMO PASSO",
         "gt_back" to "FASE PREC.",
-        "gt_try_steering" to "PROVA I CONTROLLI PER SBLOCCARE:"
+        "gt_try_steering" to "PROVA I CONTROLLI PER SBLOCCARE:",
+        "fuel_tank" to "Serbatoio Benzina",
+        "vehicle_out_of_fuel" to "SENZA BENZINA!",
+        "fuel_running_low" to "RISERVA CARB",
+        "tutorial_fuel_title" to "RIFORNIMENTO & DURATA",
+        "tutorial_fuel_desc" to "Raccogli le taniche di carburante sulla strada per mantenere pieno il serbatoio e continuare la corsa!"
     )
 }
